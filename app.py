@@ -287,4 +287,13 @@ if __name__ == '__main__':
 # ✨ FIX FOR GUNICORN/PRODUCTION DEPLOYMENT ✨
 # ============================================
 # Create app instance at module level so Gunicorn can find it
-app = create_app()
+app = None
+
+def get_app():
+    global app
+    if app is None:
+        app = create_app()
+    return app
+
+# Create app instance for gunicorn
+app = get_app()
