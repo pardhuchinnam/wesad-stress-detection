@@ -277,23 +277,15 @@ if __name__ == '__main__':
     # Run server with environment-appropriate settings
     socketio.run(
         app,
-        host='0.0.0.0' if is_production else '127.0.0.1',  # 0.0.0.0 for Render, 127.0.0.1 for local
-        port=port,  # Uses PORT env var in production
-        debug=not is_production,  # debug=False in production
-        use_reloader=False  # Always False for stability
+        host='0.0.0.0' if is_production else '127.0.0.1',
+        port=port,
+        debug=not is_production,
+        use_reloader=False
     )
 
 # ============================================
-# ✨ FIX FOR GUNICORN/PRODUCTION DEPLOYMENT ✨
+# ✨ GUNICORN/PRODUCTION DEPLOYMENT ✨
 # ============================================
-# Create app instance at module level so Gunicorn can find it
-app = None
-
-def get_app():
-    global app
-    if app is None:
-        app = create_app()
-    return app
-
-# Create app instance for gunicorn
-app = get_app()
+# Only create app when imported by Gunicorn (not when run directly)
+if __name__ != '__main__':
+    app = create_app()
