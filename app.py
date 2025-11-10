@@ -1,6 +1,4 @@
-# ============================================
-# CRITICAL: Eventlet monkey patching MUST be first
-# ============================================
+# ================= eventlet monkey patching MUST be first =================
 import eventlet
 eventlet.monkey_patch()
 
@@ -8,8 +6,9 @@ import os
 import sys
 import logging
 from pathlib import Path
+
 from flask import Flask, request, jsonify
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO
 from flask_login import LoginManager
 from flask_migrate import Migrate
 from flask_mail import Mail
@@ -24,9 +23,6 @@ sys.path.append(str(Path(__file__).parent))
 
 from models import User, db
 
-# ... rest of your code stays the same
-
-
 # Load environment variables
 load_dotenv()
 
@@ -40,7 +36,10 @@ logger = logging.getLogger(__name__)
 # Initialize Flask extensions
 migrate = Migrate()
 login_manager = LoginManager()
-socketio = SocketIO(async_mode='threading', cors_allowed_origins="*")
+
+# Critical: Use eventlet as async mode for SocketIO for compatibility
+socketio = SocketIO(async_mode='eventlet', cors_allowed_origins="*")
+
 mail = Mail()
 
 # Global ML models
@@ -62,7 +61,7 @@ def load_ml_models():
         cnn_lstm_model = load_model('models/cnn_lstm_model.h5')
         logger.info("✅ CNN-LSTM model loaded")
     except Exception as e:
-        logger.warning(f"CNN-LSTM not loaded: {e}")
+        logger.warning(f"CNN-LSTM model not loaded: {e}")
 
     try:
         scaler = joblib.load('models/scaler.save')
@@ -105,8 +104,12 @@ def create_app():
     def try_register_blueprint(bp_import_path, url_prefix=None):
         try:
             bp_module = __import__(bp_import_path, fromlist=['bp'])
-            bp = getattr(bp_module, 'auth_bp' if 'auth' in bp_import_path else
-                        'main_bp' if 'main' in bp_import_path else 'api_bp')
+            bp = getattr(
+                bp_module,
+                'auth_bp' if 'auth' in bp_import_path else
+                'main_bp' if 'main' in bp_import_path else
+                'api_bp'
+            )
             if url_prefix:
                 app.register_blueprint(bp, url_prefix=url_prefix)
             else:
@@ -135,7 +138,7 @@ def create_app():
     except Exception as e:
         logger.warning(f"Notifications not initialized: {e}")
 
-    # **NEW: Initialize Fitbit Sync Service**
+    # Fitbit Sync Service
     try:
         from services.fitbit_service import init_fitbit_sync
         fitbit_sync = init_fitbit_sync(app)
@@ -222,7 +225,6 @@ def create_app():
             logger.error(f"CNN-LSTM error: {e}")
             return jsonify({'error': str(e)}), 500
 
-    # Health check
     @app.route('/health')
     def health_check():
         """Health check endpoint"""
@@ -237,7 +239,7 @@ def create_app():
             }
         })
 
-    # Debug routes
+    # Debug routes logging
     logger.info("------ FLASK URL MAP ------")
     for rule in app.url_map.iter_rules():
         logger.info(f"{rule.endpoint}: {rule.rule}")
@@ -249,15 +251,10 @@ def create_app():
 
 
 if __name__ == '__main__':
-    import os
-
     app = create_app()
-
-    # Detect environment
     is_production = os.environ.get('FLASK_ENV', 'development') == 'production'
     port = int(os.environ.get('PORT', 5000))
 
-    # Only show banner in development
     if not is_production:
         print("\n" + "=" * 70)
         print("🧠 WESAD - Wearable Stress & Affect Detection System v2.0")
@@ -278,12 +275,13 @@ if __name__ == '__main__':
         print("   ✅ Correlation Analysis")
         print("   ✅ 24h Stress Forecasting")
         print("=" * 70 + "\n")
+
     else:
         print("🚀 WESAD v2.0 starting in PRODUCTION mode...")
         print(f"   Port: {port}")
         print(f"   Environment: {os.environ.get('FLASK_ENV')}")
 
-    # Run server with environment-appropriate settings
+    # Run with eventlet worker (ensured by async_mode='eventlet' in SocketIO)
     socketio.run(
         app,
         host='0.0.0.0' if is_production else '127.0.0.1',
@@ -292,9 +290,6 @@ if __name__ == '__main__':
         use_reloader=False
     )
 
-# ============================================
-# ✨ GUNICORN/PRODUCTION DEPLOYMENT ✨
-# ============================================
-# Only create app when imported by Gunicorn (not when run directly)
+# Gunicorn deployment expects `app` at module level
 if __name__ != '__main__':
     app = create_app()
