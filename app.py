@@ -282,3 +282,9 @@ if __name__ == '__main__':
         debug=not is_production,  # debug=False in production
         use_reloader=False  # Always False for stability
     )
+
+# ============================================
+# ✨ FIX FOR GUNICORN/PRODUCTION DEPLOYMENT ✨
+# ============================================
+# Create app instance at module level so Gunicorn can find it
+app = create_app()
