@@ -1,3 +1,9 @@
+# ============================================
+# CRITICAL: Eventlet monkey patching MUST be first
+# ============================================
+import eventlet
+eventlet.monkey_patch()
+
 import os
 import sys
 import logging
@@ -17,6 +23,9 @@ import numpy as np
 sys.path.append(str(Path(__file__).parent))
 
 from models import User, db
+
+# ... rest of your code stays the same
+
 
 # Load environment variables
 load_dotenv()
