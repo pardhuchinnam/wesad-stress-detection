@@ -1,3 +1,3 @@
 #!/bin/sh
-echo "Upgrading pip, setuptools and wheel before install"
+echo "Upgrading pip, setuptools, and wheel..."
 pip install --upgrade pip setuptools wheel
