@@ -1,17 +1,14 @@
 import os
 from dotenv import load_dotenv
 
+# Load environment variables from .env file
 load_dotenv()
-
 
 class Config:
     # Flask Configuration
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
-    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:////tmp/wesad.db')
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///wesad.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-
-    # ... rest of your config stays the same
-
 
     # Fitbit Configuration
     FITBIT_CLIENT_ID = os.getenv('FITBIT_CLIENT_ID')
@@ -25,25 +22,24 @@ class Config:
     MAIL_USE_SSL = os.getenv('MAIL_USE_SSL', 'False').lower() == 'true'
     MAIL_USERNAME = os.getenv('MAIL_USERNAME')
     MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
-    MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER', os.getenv('MAIL_USERNAME'))
+    MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER', MAIL_USERNAME)
 
-    # Twilio Configuration (Optional - for SMS)
-    TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
-    TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
-    TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
+    # Optional Twilio Configuration (for SMS alerts)
+    TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID', '')
+    TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN', '')
+    TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER', '')
 
     # Session Configuration
-    SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+    SESSION_COOKIE_SECURE = False  # Set True for HTTPS in production
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
-    PERMANENT_SESSION_LIFETIME = 86400  # 24 hours
+    PERMANENT_SESSION_LIFETIME = 86400  # 24 hours in seconds
 
     @staticmethod
     def validate_config():
-        """Validate critical configuration"""
+        """Validate critical configuration keys"""
         issues = []
 
-        # Check Fitbit config
         if not Config.FITBIT_CLIENT_ID:
             issues.append("⚠️ FITBIT_CLIENT_ID not set")
         else:
@@ -56,7 +52,6 @@ class Config:
 
         print(f"✅ Fitbit Redirect URI: {Config.FITBIT_REDIRECT_URI}")
 
-        # Check Email config
         if not Config.MAIL_USERNAME:
             issues.append("⚠️ MAIL_USERNAME not set")
         else:

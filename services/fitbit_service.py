@@ -1,6 +1,6 @@
-"""Enhanced Fitbit Real-time Data Service with Background Sync"""
+"""Enhanced Fitbit Real-time Data Service with Eventlet-Compatible Background Sync"""
 import logging
-import threading
+import eventlet
 import time
 from datetime import datetime, timedelta
 import json
@@ -33,7 +33,7 @@ class FitbitDataService:
             try:
                 import fitbit
             except ImportError:
-                logger.error("python-fitbit not installed. Install with: pip install fitbit")
+                logger.error("fitbit not installed. Install with: pip install fitbit")
                 return False
 
             from config import Config
@@ -75,7 +75,7 @@ class FitbitDataService:
                 logger.debug(f"✅ Returning cached data for {cache_key}")
                 return cached_data
 
-        # Fetch new data
+        # Fetch new data (blocking call wrapped safely)
         data = fetch_function()
         self.cache[cache_key] = (data, current_time)
         return data
@@ -323,38 +323,34 @@ class FitbitDataService:
 
 
 class FitbitBackgroundSync:
-    """Background service for continuous Fitbit data synchronization"""
+    """Background service for continuous Fitbit data synchronization using eventlet"""
 
     def __init__(self, app):
         self.app = app
         self.running = False
-        self.thread = None
+        self.greenthread = None
         self.sync_interval = 60  # Sync every 60 seconds
 
     def start_sync(self, user):
-        """Start background sync for a user"""
+        """Start background sync for a user using eventlet greenthread"""
         if self.running:
             logger.warning("Sync already running")
             return
 
         self.running = True
-        self.thread = threading.Thread(
-            target=self._sync_loop,
-            args=(user,),
-            daemon=True
-        )
-        self.thread.start()
+        # Use eventlet.spawn instead of threading.Thread
+        self.greenthread = eventlet.spawn(self._sync_loop, user)
         logger.info(f"✅ Started Fitbit background sync for user {user.username}")
 
     def stop_sync(self):
         """Stop background sync"""
         self.running = False
-        if self.thread:
-            self.thread.join(timeout=5)
+        if self.greenthread:
+            self.greenthread.kill()
         logger.info("⏹️ Stopped Fitbit background sync")
 
     def _sync_loop(self, user):
-        """Continuous sync loop"""
+        """Continuous sync loop using eventlet-friendly sleep"""
         fitbit_service = FitbitDataService(user)
 
         while self.running:
@@ -389,12 +385,12 @@ class FitbitBackgroundSync:
 
                         logger.info(f"📊 Synced: HR={phys_data['heart_rate']}, Stress={stress_score:.2f}")
 
-                # Sleep until next sync
-                time.sleep(self.sync_interval)
+                # Use eventlet.sleep instead of time.sleep (non-blocking)
+                eventlet.sleep(self.sync_interval)
 
             except Exception as e:
                 logger.error(f"❌ Sync error: {e}")
-                time.sleep(self.sync_interval)
+                eventlet.sleep(self.sync_interval)
 
 
 # Global sync service instance
