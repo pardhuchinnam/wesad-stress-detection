@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Profile - WESAD</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f8f9fa;
+        }
+        .header h1 {
+            color: #333;
+            font-size: 2rem;
+        }
+        .btn {
+            background: linear-gradient(45deg, #007bff, #0056b3);
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-block;
+        }
+        .btn:hover { transform: translateY(-2px); }
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+        }
+        .alert-success { background: #d4edda; color: #155724; }
+        .alert-error { background: #f8d7da; color: #721c24; }
+        .fitbit-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        .fitbit-section h3 { color: #333; margin-bottom: 15px; }
+        form { margin-top: 20px; }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            font-size: 1rem;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .submit-btn {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            width: 100%;
+            padding: 15px;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>👤 Your Profile</h1>
+            <a href="{{ url_for('main.user_dashboard') }}" class="btn">← Back to Dashboard</a>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <!-- Fitbit Integration Section -->
+        <div class="fitbit-section">
+            <h3>🔗 Fitbit Integration</h3>
+            {% if current_user.fitbit_connected %}
+                <p style="color:#28a745; font-weight:600;">✅ Fitbit Connected - Real data streaming enabled</p>
+                <a href="{{ url_for('main.disconnect_fitbit') }}" class="btn" style="background: linear-gradient(45deg, #dc3545, #c82333);">
+                    Disconnect Fitbit
+                </a>
+            {% else %}
+                <p>Connect your Fitbit for real physiological data</p>
+                {% if FITBIT_AVAILABLE %}
+                    <a href="{{ url_for('main.connect_fitbit') }}" class="btn" style="background: linear-gradient(45deg, #00b0b9, #00838f);">
+                        Connect Fitbit
+                    </a>
+                {% else %}
+                    <p style="color:#dc3545; font-weight:bold;">⚠️ Fitbit integration not available. Install python-fitbit package.</p>
+                {% endif %}
+            {% endif %}
+        </div>
+
+        <!-- Profile Form -->
+        <form method="POST" action="{{ url_for('main.user_profile') }}">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" value="{{ current_user.username }}" disabled />
+            </div>
+
+            <div class="form-group">
+                <label>Email (Cannot be changed)</label>
+                <input type="email" value="{{ current_user.email }}" disabled />
+            </div>
+
+            <div class="form-group">
+                <label>Age</label>
+                <input type="number" name="age" value="{{ current_user.age or '' }}" min="1" max="120" />
+            </div>
+
+            <div class="form-group">
+                <label>Gender</label>
+                <select name="gender" id="gender">
+                    <option value="">Select Gender</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Height (cm)</label>
+                <input type="number" name="height" value="{{ current_user.height or '' }}" step="0.1" min="0" />
+            </div>
+
+            <div class="form-group">
+                <label>Weight (kg)</label>
+                <input type="number" name="weight" value="{{ current_user.weight or '' }}" step="0.1" min="0" />
+            </div>
+
+            <div class="form-group">
+                <label>Activity Level</label>
+                <select name="activity_level" id="activity_level">
+                    <option value="">Select Activity Level</option>
+                    <option value="Sedentary">Sedentary</option>
+                    <option value="Light">Light</option>
+                    <option value="Moderate">Moderate</option>
+                    <option value="Active">Active</option>
+                    <option value="Very Active">Very Active</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Stress Alert Threshold (0.0 - 1.0)</label>
+                <input type="number" name="stress_threshold" value="{{ current_user.stress_threshold or 0.7 }}" step="0.1" min="0" max="1" />
+            </div>
+
+            <button type="submit" class="btn submit-btn">💾 Save Profile</button>
+        </form>
+    </div>
+
+    <script>
+        // Set selected values using JavaScript to avoid Jinja2 in attributes
+        document.addEventListener('DOMContentLoaded', function() {
+            const gender = "{{ current_user.gender or '' }}";
+            const activityLevel = "{{ current_user.activity_level or '' }}";
+
+            if (gender) {
+                document.getElementById('gender').value = gender;
+            }
+
+            if (activityLevel) {
+                document.getElementById('activity_level').value = activityLevel;
+            }
+        });
+    </script>
+</body>
+</html>

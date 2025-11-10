@@ -1,0 +1,769 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WESAD Advanced Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        .container { max-width: 1600px; margin: 0 auto; padding: 20px; }
+
+        /* Header Styles */
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .header h1 {
+            color: #333;
+            font-size: 2.5rem;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        .user-info { color: #666; font-size: 0.9rem; }
+
+        /* Navigation Buttons */
+        .nav-buttons { display: flex; gap: 15px; flex-wrap: wrap; }
+        .btn {
+            background: linear-gradient(45deg, #007bff, #0056b3);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            text-decoration: none;
+            display: inline-block;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-size: 0.9rem;
+        }
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,123,255,0.4);
+        }
+        .btn-success { background: linear-gradient(45deg, #28a745, #20c997); }
+        .btn-warning { background: linear-gradient(45deg, #ffc107, #e0a800); }
+        .btn-danger { background: linear-gradient(45deg, #dc3545, #c82333); }
+        .btn-info { background: linear-gradient(45deg, #17a2b8, #138496); }
+        .btn-purple { background: linear-gradient(45deg, #6f42c1, #5a32a3); }
+
+        /* Dashboard Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        .dashboard-card {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .dashboard-card:hover { transform: translateY(-5px); }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #f8f9fa;
+            padding-bottom: 15px;
+        }
+        .card-header h2 { font-size: 1.5rem; color: #333; margin-left: 10px; }
+
+        /* Statistics Grid */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 10px;
+        }
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .stat-label { color: #666; font-size: 0.9rem; }
+
+        /* Wellness Score Circle */
+        .wellness-score { text-align: center; padding: 20px; }
+        .score-circle {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: conic-gradient(#28a745 0% {{ user_stats.wellbeing_score }}%, #e9ecef {{ user_stats.wellbeing_score }}% 100%);
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .score-inner {
+            width: 120px;
+            height: 120px;
+            background: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: bold;
+            color: #333;
+        }
+
+        /* Chart Container */
+        .chart-container {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 15px;
+            min-height: 300px;
+        }
+        canvas { max-height: 350px; }
+
+        /* Feature List */
+        .feature-list { list-style: none; padding: 0; }
+        .feature-list li {
+            padding: 12px 0;
+            border-bottom: 1px solid #f8f9fa;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .feature-list li:last-child { border-bottom: none; }
+        .status-badge {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .status-active { background: #d4edda; color: #155724; }
+        .status-inactive { background: #f8d7da; color: #721c24; }
+
+        /* Recommendations Section */
+        .recommendations-list { padding: 0; }
+        .recommendation-item {
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border-left: 4px solid #28a745;
+        }
+        .recommendation-item.high-priority {
+            background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+            border-left-color: #dc3545;
+        }
+        .recommendation-item h4 { margin-bottom: 5px; font-size: 1rem; }
+        .recommendation-item p { color: #666; font-size: 0.9rem; margin: 0; }
+
+        /* Loading Animation */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            border-top-color: #667eea;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Alert Box */
+        .alert {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        .alert-info { background: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8; }
+        .alert-success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+
+        /* Monitoring Status Badge */
+        .monitoring-badge {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: white;
+            padding: 15px 25px;
+            border-radius: 50px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 1000;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #dc3545;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.active { background: #28a745; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header { flex-direction: column; align-items: flex-start; }
+            .nav-buttons { width: 100%; justify-content: flex-start; }
+            .dashboard-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div>
+                <h1>🧠 WESAD Advanced Dashboard</h1>
+                <div class="user-info">
+                    👤 Welcome, <strong>{{ current_user.username }}</strong> | 📧 {{ current_user.email }}
+                </div>
+            </div>
+            <div class="nav-buttons">
+                <button onclick="startMonitoring()" class="btn btn-success" id="startBtn">▶️ Start Monitor</button>
+                <button onclick="stopMonitoring()" class="btn btn-danger" id="stopBtn">⏹️ Stop Monitor</button>
+                <a href="/profile" class="btn btn-info">⚙️ Profile & Fitbit</a>
+                <a href="/api/weekly-report-pdf" class="btn btn-warning">📄 PDF Report</a>
+                <a href="/api/export-data" class="btn btn-purple">💾 Export CSV</a>
+                <a href="/auth/logout" class="btn btn-danger">🚪 Logout</a>
+            </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="dashboard-grid">
+            <!-- Wellness Overview -->
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <span style="font-size: 2rem;">💚</span>
+                    <h2>Wellness Overview</h2>
+                </div>
+                <div class="wellness-score">
+                    <div class="score-circle">
+                        <div class="score-inner">{{ user_stats.wellbeing_score }}%</div>
+                    </div>
+                    <h3 style="color: #28a745;">{{ user_stats.wellness_status }}</h3>
+                    <p style="color: #666;">Overall Wellness Score</p>
+                </div>
+            </div>
+
+            <!-- Statistics -->
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <span style="font-size: 2rem;">📊</span>
+                    <h2>Your Statistics</h2>
+                </div>
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <div class="stat-number">{{ user_stats.total_predictions }}</div>
+                        <div class="stat-label">Total Readings</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">{{ user_stats.stress_episodes }}</div>
+                        <div class="stat-label">Stress Episodes</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">{{ user_stats.baseline_count }}</div>
+                        <div class="stat-label">Baseline State</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">{{ user_stats.amusement_count }}</div>
+                        <div class="stat-label">Relaxed State</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Status -->
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <span style="font-size: 2rem;">⚡</span>
+                    <h2>System Status</h2>
+                </div>
+                <ul class="feature-list">
+                    <li>
+                        <span>🤖 ANN Model</span>
+                        <span class="status-badge status-active">✅ Loaded</span>
+                    </li>
+                    <li>
+                        <span>🧠 CNN-LSTM Model</span>
+                        <span class="status-badge status-active" id="cnnStatus">✅ Available</span>
+                    </li>
+                    <li>
+                        <span>📡 Real-time Monitor</span>
+                        <span class="status-badge status-inactive" id="monitorStatus">⏸️ Stopped</span>
+                    </li>
+                    <li>
+                        <span>⌚ Fitbit Integration</span>
+                        <span class="status-badge {% if current_user.fitbit_connected %}status-active{% else %}status-inactive{% endif %}">
+                            {% if current_user.fitbit_connected %}✅ Connected{% else %}❌ Not Connected{% endif %}
+                        </span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Emotion Timeline Chart -->
+        <div class="dashboard-card">
+            <div class="card-header">
+                <span style="font-size: 2rem;">📈</span>
+                <h2>Emotion Timeline (Last 7 Days)</h2>
+            </div>
+            <div class="chart-container">
+                <canvas id="timelineChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Two Column Layout -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 25px; margin-bottom: 30px;">
+            <!-- Emotion Distribution -->
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <span style="font-size: 2rem;">🥧</span>
+                    <h2>Emotion Distribution</h2>
+                </div>
+                <div class="chart-container" style="height: 300px;">
+                    <canvas id="pieChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Feature Importance -->
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <span style="font-size: 2rem;">🎯</span>
+                    <h2>Feature Importance</h2>
+                </div>
+                <div class="chart-container" style="height: 300px;">
+                    <canvas id="featureChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Recommendations -->
+        <div class="dashboard-card">
+            <div class="card-header">
+                <span style="font-size: 2rem;">💡</span>
+                <h2>AI Recommendations</h2>
+            </div>
+            <div id="recommendationsContainer">
+                <div class="loading"></div> Loading personalized recommendations...
+            </div>
+        </div>
+
+        <!-- Model Comparison -->
+        <div class="dashboard-card">
+            <div class="card-header">
+                <span style="font-size: 2rem;">🏆</span>
+                <h2>Model Performance Comparison</h2>
+            </div>
+            <div class="chart-container">
+                <canvas id="modelComparisonChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Monitoring Status Badge -->
+    <div class="monitoring-badge" id="statusBadge">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Monitoring Stopped</span>
+    </div>
+
+    <script>
+        // Global variables
+        let timelineChart, pieChart, featureChart, modelChart;
+        let socket;
+
+        // Initialize Socket.IO
+        function initSocketIO() {
+            try {
+                socket = io('http://127.0.0.1:5000');
+
+                socket.on('connect', function() {
+                    console.log('✅ Connected to server');
+                });
+
+                socket.on('emotion_update', function(data) {
+                    console.log('📊 Emotion update:', data);
+                    updateLiveData(data);
+                });
+
+                socket.on('disconnect', function() {
+                    console.log('⚠️ Disconnected from server');
+                });
+            } catch (error) {
+                console.error('Socket.IO error:', error);
+            }
+        }
+
+        // Start Monitoring
+        async function startMonitoring() {
+            try {
+                const response = await fetch('/start-realtime');
+                const data = await response.json();
+
+                if (data.status === 'success' || data.status === 'already_active') {
+                    document.getElementById('monitorStatus').textContent = '▶️ Running';
+                    document.getElementById('monitorStatus').className = 'status-badge status-active';
+                    document.getElementById('statusDot').classList.add('active');
+                    document.getElementById('statusText').textContent = 'Monitoring Active';
+                    showAlert('✅ ' + data.message, 'success');
+                }
+            } catch (error) {
+                showAlert('❌ Failed to start monitoring', 'error');
+                console.error(error);
+            }
+        }
+
+        // Stop Monitoring
+        async function stopMonitoring() {
+            try {
+                const response = await fetch('/stop-realtime');
+                const data = await response.json();
+
+                document.getElementById('monitorStatus').textContent = '⏸️ Stopped';
+                document.getElementById('monitorStatus').className = 'status-badge status-inactive';
+                document.getElementById('statusDot').classList.remove('active');
+                document.getElementById('statusText').textContent = 'Monitoring Stopped';
+                showAlert('⏹️ ' + data.message, 'info');
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        // Show Alert
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            document.querySelector('.container').prepend(alertDiv);
+            setTimeout(() => alertDiv.remove(), 5000);
+        }
+
+        // Load Emotion Timeline - FIXED VERSION
+        async function loadEmotionTimeline() {
+            try {
+                console.log('📊 Loading emotion timeline...');
+
+                const response = await fetch('/api/emotion-timeline?days=7');
+                const data = await response.json();
+
+                console.log('📊 Timeline API response:', data);
+
+                if (!data.timeline || data.timeline.length === 0) {
+                    console.warn('⚠️ No timeline data available');
+                    document.getElementById('timelineChart').parentElement.innerHTML = `
+                        <div style="text-align: center; padding: 60px 20px; color: #666;">
+                            <h3 style="color: #dc3545; margin-bottom: 15px;">📊 No Timeline Data Yet</h3>
+                            <p>Run: <code style="background: #f8f9fa; padding: 5px 10px; border-radius: 5px;">python generate_test_timeline.py 1</code></p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                console.log(`✅ Found ${data.timeline.length} timeline records`);
+
+                const ctx = document.getElementById('timelineChart').getContext('2d');
+
+                // Prepare labels
+                const labels = data.timeline.map(d => {
+                    const date = new Date(d.timestamp);
+                    const month = date.toLocaleDateString('en-US', { month: 'short' });
+                    const day = date.getDate();
+                    const time = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                    return `${month} ${day}, ${time}`;
+                });
+
+                // Map emotions to numeric values
+                const emotionValues = data.timeline.map(d => {
+                    switch(d.emotion.toLowerCase()) {
+                        case 'stress': return 2;
+                        case 'amusement': return 1;
+                        case 'baseline':
+                        default: return 0;
+                    }
+                });
+
+                const confidenceValues = data.timeline.map(d => (d.confidence || 0.5) * 100);
+
+                // Create chart
+                timelineChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Emotion Level',
+                            data: emotionValues,
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            borderWidth: 3,
+                            fill: true,
+                            tension: 0.4,
+                            yAxisID: 'y'
+                        }, {
+                            label: 'Confidence %',
+                            data: confidenceValues,
+                            borderColor: '#28a745',
+                            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                            borderWidth: 2,
+                            fill: false,
+                            tension: 0.4,
+                            yAxisID: 'y1'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) {
+                                            label += ': ';
+                                        }
+                                        if (context.datasetIndex === 0) {
+                                            const emotions = ['Baseline', 'Amusement', 'Stress'];
+                                            label += emotions[context.parsed.y];
+                                        } else {
+                                            label += context.parsed.y.toFixed(1) + '%';
+                                        }
+                                        return label;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 2,
+                                ticks: {
+                                    stepSize: 1,
+                                    callback: function(value) {
+                                        const emotions = ['Baseline', 'Amusement', 'Stress'];
+                                        return emotions[value] || '';
+                                    }
+                                },
+                                title: { display: true, text: 'Emotion State' },
+                                grid: { color: 'rgba(0, 0, 0, 0.05)' }
+                            },
+                            y1: {
+                                position: 'right',
+                                beginAtZero: true,
+                                max: 100,
+                                title: { display: true, text: 'Confidence %' },
+                                grid: { drawOnChartArea: false }
+                            },
+                            x: {
+                                title: { display: true, text: 'Time' },
+                                ticks: {
+                                    maxRotation: 45,
+                                    minRotation: 45,
+                                    maxTicksLimit: 10
+                                }
+                            }
+                        }
+                    }
+                });
+
+                console.log('✅ Timeline chart loaded successfully');
+
+            } catch (error) {
+                console.error('❌ Timeline error:', error);
+                document.getElementById('timelineChart').parentElement.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #dc3545;">
+                        <h4>⚠️ Error Loading Timeline</h4>
+                        <p style="color: #666; font-size: 0.9rem;">Error: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Load Emotion Distribution Pie Chart
+        async function loadEmotionDistribution() {
+            try {
+                const response = await fetch('/api/emotion-distribution');
+                const data = await response.json();
+
+                const ctx = document.getElementById('pieChart').getContext('2d');
+
+                pieChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Baseline', 'Stress', 'Amusement'],
+                        datasets: [{
+                            data: [data.baseline || 0, data.stress || 0, data.amusement || 0],
+                            backgroundColor: ['#95a5a6', '#e74c3c', '#2ecc71'],
+                            borderWidth: 2,
+                            borderColor: '#fff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'bottom' }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Pie chart error:', error);
+            }
+        }
+
+        // Load Feature Importance
+        async function loadFeatureImportance() {
+            try {
+                const response = await fetch('/api/feature-importance');
+                const data = await response.json();
+
+                const ctx = document.getElementById('featureChart').getContext('2d');
+
+                featureChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.features || ['Heart Rate', 'EDA', 'Temperature', 'Respiration'],
+                        datasets: [{
+                            label: 'Importance Score',
+                            data: data.importance || [0.35, 0.28, 0.20, 0.17],
+                            backgroundColor: 'rgba(102, 126, 234, 0.7)',
+                            borderColor: '#667eea',
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        indexAxis: 'y',
+                        scales: {
+                            x: { beginAtZero: true, max: 1, title: { display: true, text: 'Importance' }}
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Feature importance error:', error);
+            }
+        }
+
+        // Load Recommendations
+        async function loadRecommendations() {
+            try {
+                const response = await fetch('/api/recommendations');
+                const data = await response.json();
+
+                const container = document.getElementById('recommendationsContainer');
+                container.innerHTML = '';
+
+                data.recommendations.forEach(rec => {
+                    const div = document.createElement('div');
+                    div.className = 'recommendation-item' + (rec.priority === 'high' ? ' high-priority' : '');
+                    div.innerHTML = `
+                        <h4>${rec.icon || '✅'} ${rec.message}</h4>
+                        <p><strong>Action:</strong> ${rec.action}</p>
+                    `;
+                    container.appendChild(div);
+                });
+            } catch (error) {
+                console.error('Recommendations error:', error);
+                document.getElementById('recommendationsContainer').innerHTML = '<p style="color: #666;">Loading recommendations...</p>';
+            }
+        }
+
+        // Load Model Comparison
+        async function loadModelComparison() {
+            try {
+                const response = await fetch('/api/model-comparison');
+                const data = await response.json();
+
+                const ctx = document.getElementById('modelComparisonChart').getContext('2d');
+
+                const models = Object.keys(data.models);
+                const accuracies = models.map(m => (data.models[m].accuracy || 0) * 100);
+                const f1Scores = models.map(m => (data.models[m].f1_score || 0) * 100);
+
+                modelChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: models,
+                        datasets: [{
+                            label: 'Accuracy %',
+                            data: accuracies,
+                            backgroundColor: 'rgba(102, 126, 234, 0.7)',
+                            borderColor: '#667eea',
+                            borderWidth: 2
+                        }, {
+                            label: 'F1-Score %',
+                            data: f1Scores,
+                            backgroundColor: 'rgba(40, 167, 69, 0.7)',
+                            borderColor: '#28a745',
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, max: 100, title: { display: true, text: 'Performance %' }}
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Model comparison error:', error);
+            }
+        }
+
+        // Update live data from SocketIO
+        function updateLiveData(data) {
+            console.log('Live update:', data);
+            // You can update charts dynamically here if needed
+        }
+
+        // Initialize everything on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 Initializing dashboard...');
+            initSocketIO();
+            loadEmotionTimeline();
+            loadEmotionDistribution();
+            loadFeatureImportance();
+            loadRecommendations();
+            loadModelComparison();
+        });
+    </script>
+</body>
+</html>

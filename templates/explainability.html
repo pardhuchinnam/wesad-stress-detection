@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Model Explainability - WESAD</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Use same style as dashboard */
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔬 Model Explainability Dashboard</h1>
+
+        <div class="card">
+            <h2>Feature Importance (SHAP)</h2>
+            <canvas id="shapChart"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>Top Contributing Features</h2>
+            <div id="topFeatures"></div>
+        </div>
+
+        <div class="card">
+            <h2>SHAP Summary Plot</h2>
+            <img id="shapPlot" src="" alt="SHAP plot"/>
+        </div>
+    </div>
+
+    <script>
+        // Load and visualize explanations
+        fetch('/api/explain-prediction?method=shap')
+            .then(r => r.json())
+            .then(data => {
+                // Render charts
+                console.log(data);
+            });
+    </script>
+</body>
+</html>
