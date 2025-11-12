@@ -1,4 +1,5 @@
-from flask import Blueprint, jsonify, redirect, url_for, render_template, flash, request, current_app
+from flask import (Blueprint, jsonify, redirect, url_for, render_template,
+                   flash, request, current_app)
 from flask_login import login_required, current_user
 import logging
 import sys
@@ -13,14 +14,13 @@ sys.path.insert(0, str(backend_dir))
 main_bp = Blueprint('main', __name__)
 logger = logging.getLogger(__name__)
 
-# Import core project modules with error handling
+# Import core project modules safely
 try:
     import database
     import services
     import random
     from services.notifications import send_stress_alert_email
     from services.fitbit_service import FitbitDataService
-
     logger.info("✅ All core modules imported successfully")
 except ImportError as e:
     logger.critical(f"CRITICAL ERROR: Failed to import a core module: {e}")
@@ -42,7 +42,7 @@ def index():
         try:
             total_predictions = database.get_total_predictions_count()
         except Exception as e:
-            logger.debug(f"Could not get predictions: {e}")
+            logger.debug(f"Could not get predictions count: {e}")
 
     return jsonify({
         'message': 'WESAD Stress Detection API - Advanced Edition',
@@ -58,7 +58,6 @@ def index():
             'api_docs': '/api/health'
         }
     })
-
 
 @main_bp.route('/dashboard')
 @login_required
@@ -79,7 +78,6 @@ def user_dashboard():
         logger.error(f"Dashboard error: {e}")
         flash("Error loading dashboard", "error")
         return redirect(url_for('main.index'))
-
 
 @main_bp.route('/start-realtime')
 @login_required
@@ -107,7 +105,6 @@ def start_realtime():
         logger.error(f"Failed to start real-time monitoring: {exc}")
         return jsonify({'status': 'error', 'message': str(exc)}), 500
 
-
 @main_bp.route('/stop-realtime')
 @login_required
 def stop_realtime():
@@ -127,7 +124,6 @@ def stop_realtime():
     except Exception as exc:
         logger.error(f"Failed to stop real-time monitoring: {exc}")
         return jsonify({'status': 'error', 'message': str(exc)}), 500
-
 
 @main_bp.route('/monitoring-status')
 @login_required
@@ -161,7 +157,6 @@ def monitoring_status():
             'message': str(exc)
         }), 500
 
-
 @main_bp.route('/generate-test-data')
 @login_required
 def generate_test_data():
@@ -194,7 +189,6 @@ def generate_test_data():
     except Exception as exc:
         logger.error(f"Test data generation error: {exc}")
         return jsonify({'status': 'error', 'message': str(exc)}), 500
-
 
 @main_bp.route('/profile', methods=['GET', 'POST'])
 @login_required
@@ -231,7 +225,6 @@ def user_profile():
                            current_user=current_user,
                            FITBIT_AVAILABLE=FITBIT_AVAILABLE)
 
-
 @main_bp.route('/connect-fitbit')
 @login_required
 def connect_fitbit():
@@ -256,7 +249,6 @@ def connect_fitbit():
         logger.error(f'Fitbit connection error: {exc}')
         flash(f'❌ Error connecting to Fitbit: {exc}', 'error')
         return redirect(url_for('main.user_profile'))
-
 
 @main_bp.route('/fitbit-callback')
 @login_required
@@ -306,7 +298,6 @@ def fitbit_callback():
         flash(f'❌ Error during Fitbit callback: {str(exc)}', 'error')
         return redirect(url_for('main.user_profile'))
 
-
 @main_bp.route('/disconnect-fitbit')
 @login_required
 def disconnect_fitbit():
@@ -323,7 +314,6 @@ def disconnect_fitbit():
         logger.error(f'Fitbit disconnect error: {exc}')
         flash('❌ Error disconnecting Fitbit', 'error')
         return redirect(url_for('main.user_profile'))
-
 
 @main_bp.route('/api/fitbit-data')
 @login_required
@@ -355,7 +345,6 @@ def get_fitbit_data():
         logger.error(f"Fitbit data endpoint error: {e}")
         return jsonify({'error': str(e), 'message': 'Error fetching Fitbit data'}), 500
 
-
 @main_bp.route('/test-email')
 @login_required
 def test_email():
@@ -370,7 +359,6 @@ def test_email():
         logger.error(f"Test email error: {e}")
         flash(f'❌ Email test failed: {str(e)}', 'error')
         return redirect(url_for('main.user_profile'))
-
 
 @main_bp.route('/research/dashboard')
 @login_required
@@ -395,18 +383,15 @@ def research_dashboard():
             'error': str(e)
         })
 
-
 @main_bp.route('/export-report')
 @login_required
 def export_report():
     return redirect(url_for('api.weekly_report_pdf'))
 
-
 @main_bp.route('/export-data')
 @login_required
 def export_data():
     return redirect(url_for('api.export_data'))
-
 
 @main_bp.route('/health-check')
 def health_check():
