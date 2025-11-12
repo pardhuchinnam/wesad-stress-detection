@@ -14,11 +14,15 @@ from flask_mail import Mail
 from flask_cors import CORS
 from dotenv import load_dotenv
 from tensorflow.keras.models import load_model
+from backend.routes.auth import auth_bp
+from backend.routes.main import main_bp
+from backend.routes.api import api_bp
+
 import joblib
 import numpy as np
 
 # Add backend folder to sys.path for local imports
-sys.path.append(str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
 
 # Import your models here (adjust if models in backend/models.py)
 from models import User, db
@@ -109,12 +113,6 @@ def create_app():
         from backend.routes.api import api_bp
     except ImportError as e:
         logger.critical(f"❌ CRITICAL BLUEPRINT IMPORT ERROR: {e}")
-
-    try:
-        import services
-        logger.info("✅ Services module loaded successfully (active_monitors initialized)")
-    except Exception as e:
-        logger.critical(f"❌ CRITICAL SERVICES IMPORT ERROR: {e}")
 
     # Register blueprints safely
     if auth_bp:
