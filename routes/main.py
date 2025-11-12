@@ -1,21 +1,19 @@
-from flask import Blueprint, jsonify, redirect, url_for, render_template, flash, request
+from flask import Blueprint, jsonify, redirect, url_for, render_template, flash, request, current_app
 from flask_login import login_required, current_user
 import logging
 import sys
 from pathlib import Path
 from datetime import datetime
 
-# Add backend to system path to import project modules
+# Add backend directory to system path for imports
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
-# Initialize Blueprint and Logger first
+# Initialize Blueprint and logger
 main_bp = Blueprint('main', __name__)
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------
-# Import modules at the top level
-# ---------------------------------------------
+# Import core project modules with error handling
 try:
     import database
     import services
@@ -29,14 +27,13 @@ except ImportError as e:
     database = None
     services = None
 
-
-# ---------------------------------------------
+# ---------------
 # ROUTES
-# ---------------------------------------------
+# ---------------
 
 @main_bp.route('/')
 def index():
-    """Landing page"""
+    """Landing page or API info"""
     if current_user.is_authenticated:
         return redirect(url_for('main.user_dashboard'))
 
@@ -239,9 +236,6 @@ def user_profile():
 @login_required
 def connect_fitbit():
     """Initiate Fitbit OAuth connection"""
-    import base64
-    from flask import current_app
-
     try:
         client_id = current_app.config.get('FITBIT_CLIENT_ID')
         client_secret = current_app.config.get('FITBIT_CLIENT_SECRET')
@@ -269,7 +263,6 @@ def connect_fitbit():
 def fitbit_callback():
     import base64
     import requests
-    from flask import current_app
     from models import db
 
     try:
@@ -433,4 +426,5 @@ def health_check():
             ]
         })
     except Exception as e:
+        logger.error(f"Health check error: {e}")
         return jsonify({'status': 'unhealthy', 'error': str(e)}), 500
