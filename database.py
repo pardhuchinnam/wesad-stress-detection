@@ -1,12 +1,13 @@
-"""Enhanced Database operations for stress predictions"""
 import sqlite3
 import logging
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
+import threading
 
 logger = logging.getLogger(__name__)
+db_lock = threading.Lock()
 
 # Use absolute path for database
 DB_DIR = Path(__file__).parent
@@ -19,44 +20,33 @@ os.makedirs(DB_DIR, exist_ok=True)
 def init_database():
     """Initialize database with all required tables"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
 
-        # Create predictions table with enhanced schema
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS predictions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                prediction TEXT NOT NULL,
-                probability REAL NOT NULL,
-                user_id TEXT NOT NULL,
-                features TEXT,
-                model_used TEXT,
-                explanation_factors TEXT,
-                heart_rate REAL,
-                stress_score REAL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    prediction TEXT NOT NULL,
+                    probability REAL NOT NULL,
+                    user_id TEXT NOT NULL,
+                    features TEXT,
+                    model_used TEXT,
+                    explanation_factors TEXT,
+                    heart_rate REAL,
+                    stress_score REAL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
 
-        # Create index for faster queries
-        c.execute('''
-            CREATE INDEX IF NOT EXISTS idx_user_timestamp 
-            ON predictions(user_id, timestamp)
-        ''')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_user_timestamp ON predictions(user_id, timestamp)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_prediction ON predictions(prediction)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_user_prediction ON predictions(user_id, prediction)')
 
-        c.execute('''
-            CREATE INDEX IF NOT EXISTS idx_prediction 
-            ON predictions(prediction)
-        ''')
+            conn.commit()
+            conn.close()
 
-        c.execute('''
-            CREATE INDEX IF NOT EXISTS idx_user_prediction 
-            ON predictions(user_id, prediction)
-        ''')
-
-        conn.commit()
-        conn.close()
         logger.info(f"✅ Database initialized at {DB_PATH}")
         return True
 
@@ -68,40 +58,41 @@ def init_database():
 def store_prediction(stress_level, confidence, features, user_id, model_used, factors):
     """Store a stress prediction with enhanced data"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
 
-        # Extract heart rate from features if available
-        heart_rate = None
-        if isinstance(features, dict):
-            heart_rate = features.get('heart_rate', features.get('HR', None))
-            features_json = json.dumps(features)
-        else:
-            features_json = str(features)
+            # Extract heart rate if available
+            heart_rate = None
+            if isinstance(features, dict):
+                heart_rate = features.get('heart_rate', features.get('HR', None))
+                features_json = json.dumps(features)
+            else:
+                features_json = str(features)
 
-        # Calculate stress score
-        stress_score = confidence if stress_level == 'stress' else (1 - confidence)
+            # Compute stress score
+            stress_score = confidence if stress_level == 'stress' else (1 - confidence)
 
-        c.execute('''
-            INSERT INTO predictions 
-            (timestamp, prediction, probability, user_id, features, model_used, 
-             explanation_factors, heart_rate, stress_score)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            datetime.now(timezone.utc).isoformat(),
-            stress_level,
-            confidence,
-            str(user_id),  # Ensure string
-            features_json,
-            model_used,
-            str(factors) if factors else '[]',
-            heart_rate,
-            stress_score
-        ))
+            c.execute('''
+                INSERT INTO predictions 
+                (timestamp, prediction, probability, user_id, features, model_used, 
+                 explanation_factors, heart_rate, stress_score)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                datetime.now(timezone.utc).isoformat(),
+                stress_level,
+                confidence,
+                str(user_id),
+                features_json,
+                model_used,
+                json.dumps(factors) if factors else '[]',
+                heart_rate,
+                stress_score
+            ))
 
-        conn.commit()
-        prediction_id = c.lastrowid
-        conn.close()
+            conn.commit()
+            prediction_id = c.lastrowid
+            conn.close()
 
         logger.info(f"✅ Prediction stored: ID={prediction_id}, Level={stress_level}, Confidence={confidence:.2f}")
         return prediction_id
@@ -114,54 +105,36 @@ def store_prediction(stress_level, confidence, features, user_id, model_used, fa
 def get_user_stats(user_id):
     """Get comprehensive user statistics"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
 
-        user_id = str(user_id)  # Ensure string
+            user_id = str(user_id)
 
-        # Total predictions
-        c.execute('SELECT COUNT(*) FROM predictions WHERE user_id = ?', (user_id,))
-        total_predictions = c.fetchone()[0]
+            c.execute('SELECT COUNT(*) FROM predictions WHERE user_id = ?', (user_id,))
+            total_predictions = c.fetchone()[0]
 
-        # Stress episodes
-        c.execute(
-            'SELECT COUNT(*) FROM predictions WHERE user_id = ? AND prediction = "stress"',
-            (user_id,)
-        )
-        stress_episodes = c.fetchone()[0]
+            c.execute('SELECT COUNT(*) FROM predictions WHERE user_id = ? AND prediction = "stress"', (user_id,))
+            stress_episodes = c.fetchone()[0]
 
-        # Baseline count
-        c.execute(
-            'SELECT COUNT(*) FROM predictions WHERE user_id = ? AND prediction = "baseline"',
-            (user_id,)
-        )
-        baseline_count = c.fetchone()[0]
+            c.execute('SELECT COUNT(*) FROM predictions WHERE user_id = ? AND prediction = "baseline"', (user_id,))
+            baseline_count = c.fetchone()[0]
 
-        # Amusement count
-        c.execute(
-            'SELECT COUNT(*) FROM predictions WHERE user_id = ? AND prediction = "amusement"',
-            (user_id,)
-        )
-        amusement_count = c.fetchone()[0]
+            c.execute('SELECT COUNT(*) FROM predictions WHERE user_id = ? AND prediction = "amusement"', (user_id,))
+            amusement_count = c.fetchone()[0]
 
-        # Average stress score
-        c.execute(
-            'SELECT AVG(stress_score) FROM predictions WHERE user_id = ?',
-            (user_id,)
-        )
-        avg_stress = c.fetchone()[0] or 0
+            c.execute('SELECT AVG(stress_score) FROM predictions WHERE user_id = ?', (user_id,))
+            avg_stress = c.fetchone()[0] or 0
 
-        # Recent 24h stress count
-        cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-        c.execute(
-            'SELECT COUNT(*) FROM predictions WHERE user_id = ? AND timestamp > ? AND prediction = "stress"',
-            (user_id, cutoff_24h)
-        )
-        stress_24h = c.fetchone()[0]
+            cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+            c.execute('''
+                SELECT COUNT(*) FROM predictions 
+                WHERE user_id = ? AND timestamp > ? AND prediction = "stress"
+            ''', (user_id, cutoff_24h))
+            stress_24h = c.fetchone()[0]
 
-        conn.close()
+            conn.close()
 
-        # Calculate wellbeing score (0-100)
         if total_predictions > 0:
             stress_ratio = stress_episodes / total_predictions
             wellbeing_score = int(max(0, min(100, 100 - (stress_ratio * 100))))
@@ -169,7 +142,6 @@ def get_user_stats(user_id):
             wellbeing_score = 85
             stress_ratio = 0
 
-        # Determine wellness status
         if wellbeing_score >= 90:
             wellness_status = 'Excellent 🌟'
         elif wellbeing_score >= 75:
@@ -211,28 +183,29 @@ def get_user_stats(user_id):
 def get_historical_data(days=7, user_id=None):
     """Get historical stress data for charts"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
 
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
-        if user_id:
-            c.execute('''
-                SELECT timestamp, prediction, probability, stress_score 
-                FROM predictions 
-                WHERE user_id = ? AND timestamp > ? 
-                ORDER BY timestamp ASC
-            ''', (str(user_id), cutoff))
-        else:
-            c.execute('''
-                SELECT timestamp, prediction, probability, stress_score 
-                FROM predictions 
-                WHERE timestamp > ? 
-                ORDER BY timestamp ASC
-            ''', (cutoff,))
+            if user_id:
+                c.execute('''
+                    SELECT timestamp, prediction, probability, stress_score 
+                    FROM predictions 
+                    WHERE user_id = ? AND timestamp > ? 
+                    ORDER BY timestamp ASC
+                ''', (str(user_id), cutoff))
+            else:
+                c.execute('''
+                    SELECT timestamp, prediction, probability, stress_score 
+                    FROM predictions 
+                    WHERE timestamp > ? 
+                    ORDER BY timestamp ASC
+                ''', (cutoff,))
 
-        rows = c.fetchall()
-        conn.close()
+            rows = c.fetchall()
+            conn.close()
 
         if not rows:
             logger.warning(f"⚠️ No historical data found for user {user_id} in last {days} days")
@@ -260,28 +233,28 @@ def get_historical_data(days=7, user_id=None):
 def get_user_predictions(user_id, limit=100):
     """Get user's recent predictions with full details"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
 
-        c.execute('''
-            SELECT 
-                id, timestamp, prediction as stress_level, 
-                probability as confidence, features, model_used,
-                heart_rate, stress_score
-            FROM predictions 
-            WHERE user_id = ? 
-            ORDER BY timestamp DESC 
-            LIMIT ?
-        ''', (str(user_id), limit))
+            c.execute('''
+                SELECT 
+                    id, timestamp, prediction as stress_level, 
+                    probability as confidence, features, model_used,
+                    heart_rate, stress_score
+                FROM predictions 
+                WHERE user_id = ? 
+                ORDER BY timestamp DESC 
+                LIMIT ?
+            ''', (str(user_id), limit))
 
-        rows = c.fetchall()
-        conn.close()
+            rows = c.fetchall()
+            conn.close()
 
         predictions = []
         for row in rows:
             pred = dict(row)
-            # Parse features JSON
             try:
                 pred['features'] = json.loads(pred['features']) if pred['features'] else {}
             except:
@@ -299,21 +272,22 @@ def get_user_predictions(user_id, limit=100):
 def get_user_predictions_since(user_id, cutoff_date):
     """Get predictions since a specific date - for timeline"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
 
-        c.execute('''
-            SELECT 
-                timestamp, prediction as stress_level, 
-                probability as confidence, features, heart_rate
-            FROM predictions
-            WHERE user_id = ? AND timestamp >= ?
-            ORDER BY timestamp ASC
-        ''', (str(user_id), cutoff_date.isoformat()))
+            c.execute('''
+                SELECT 
+                    timestamp, prediction as stress_level, 
+                    probability as confidence, features, heart_rate
+                FROM predictions
+                WHERE user_id = ? AND timestamp >= ?
+                ORDER BY timestamp ASC
+            ''', (str(user_id), cutoff_date.isoformat()))
 
-        rows = c.fetchall()
-        conn.close()
+            rows = c.fetchall()
+            conn.close()
 
         predictions = []
         for row in rows:
@@ -335,11 +309,12 @@ def get_user_predictions_since(user_id, cutoff_date):
 def get_total_predictions_count():
     """Get total predictions count across all users"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute('SELECT COUNT(*) FROM predictions')
-        count = c.fetchone()[0]
-        conn.close()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute('SELECT COUNT(*) FROM predictions')
+            count = c.fetchone()[0]
+            conn.close()
         return count
     except Exception as e:
         logger.error(f"❌ Error getting total predictions: {e}")
@@ -349,25 +324,21 @@ def get_total_predictions_count():
 def get_emotion_distribution(user_id):
     """Get emotion distribution for pie chart"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
 
-        c.execute('''
-            SELECT prediction, COUNT(*) as count
-            FROM predictions
-            WHERE user_id = ?
-            GROUP BY prediction
-        ''', (str(user_id),))
+            c.execute('''
+                SELECT prediction, COUNT(*) as count
+                FROM predictions
+                WHERE user_id = ?
+                GROUP BY prediction
+            ''', (str(user_id),))
 
-        rows = c.fetchall()
-        conn.close()
+            rows = c.fetchall()
+            conn.close()
 
-        distribution = {
-            'baseline': 0,
-            'stress': 0,
-            'amusement': 0
-        }
-
+        distribution = {'baseline': 0, 'stress': 0, 'amusement': 0}
         for row in rows:
             emotion, count = row
             if emotion in distribution:
@@ -384,24 +355,25 @@ def get_emotion_distribution(user_id):
 def get_stress_timeline(user_id, hours=24):
     """Get stress timeline for last N hours"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
 
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
-        c.execute('''
-            SELECT 
-                strftime('%Y-%m-%d %H:00', timestamp) as hour,
-                AVG(CASE WHEN prediction = 'stress' THEN 1 ELSE 0 END) as stress_ratio,
-                COUNT(*) as count
-            FROM predictions
-            WHERE user_id = ? AND timestamp > ?
-            GROUP BY hour
-            ORDER BY hour ASC
-        ''', (str(user_id), cutoff))
+            c.execute('''
+                SELECT 
+                    strftime('%Y-%m-%d %H:00', timestamp) as hour,
+                    AVG(CASE WHEN prediction = 'stress' THEN 1 ELSE 0 END) as stress_ratio,
+                    COUNT(*) as count
+                FROM predictions
+                WHERE user_id = ? AND timestamp > ?
+                GROUP BY hour
+                ORDER BY hour ASC
+            ''', (str(user_id), cutoff))
 
-        rows = c.fetchall()
-        conn.close()
+            rows = c.fetchall()
+            conn.close()
 
         timeline = [{
             'hour': row[0],
@@ -419,16 +391,17 @@ def get_stress_timeline(user_id, hours=24):
 def clean_old_predictions(days=30):
     """Clean predictions older than specified days"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
 
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
-        c.execute('DELETE FROM predictions WHERE timestamp < ?', (cutoff,))
-        deleted = c.rowcount
+            c.execute('DELETE FROM predictions WHERE timestamp < ?', (cutoff,))
+            deleted = c.rowcount
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+            conn.close()
 
         logger.info(f"✅ Cleaned {deleted} old predictions (>{days} days)")
         return deleted
@@ -441,9 +414,10 @@ def clean_old_predictions(days=30):
 def vacuum_database():
     """Optimize database by reclaiming unused space"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute('VACUUM')
-        conn.close()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute('VACUUM')
+            conn.close()
         logger.info("✅ Database optimized (VACUUM completed)")
         return True
     except Exception as e:
@@ -454,26 +428,23 @@ def vacuum_database():
 def get_database_info():
     """Get database statistics and information"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
 
-        # Get total records
-        c.execute('SELECT COUNT(*) FROM predictions')
-        total_records = c.fetchone()[0]
+            c.execute('SELECT COUNT(*) FROM predictions')
+            total_records = c.fetchone()[0]
 
-        # Get unique users
-        c.execute('SELECT COUNT(DISTINCT user_id) FROM predictions')
-        unique_users = c.fetchone()[0]
+            c.execute('SELECT COUNT(DISTINCT user_id) FROM predictions')
+            unique_users = c.fetchone()[0]
 
-        # Get date range
-        c.execute('SELECT MIN(timestamp), MAX(timestamp) FROM predictions')
-        date_range = c.fetchone()
+            c.execute('SELECT MIN(timestamp), MAX(timestamp) FROM predictions')
+            date_range = c.fetchone()
 
-        # Get database file size
-        db_size_bytes = DB_PATH.stat().st_size if DB_PATH.exists() else 0
-        db_size_mb = round(db_size_bytes / (1024 * 1024), 2)
+            db_size_bytes = DB_PATH.stat().st_size if DB_PATH.exists() else 0
+            db_size_mb = round(db_size_bytes / (1024 * 1024), 2)
 
-        conn.close()
+            conn.close()
 
         return {
             'database_path': str(DB_PATH),
