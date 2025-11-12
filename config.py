@@ -7,12 +7,14 @@ load_dotenv()
 class Config:
     # Flask Configuration
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
-    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///wesad.db')
+
+    # Database Configuration (default SQLite, change as needed)
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///wesad_users.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # Fitbit Configuration
-    FITBIT_CLIENT_ID = os.getenv('FITBIT_CLIENT_ID')
-    FITBIT_CLIENT_SECRET = os.getenv('FITBIT_CLIENT_SECRET')
+    FITBIT_CLIENT_ID = os.getenv('FITBIT_CLIENT_ID', 'your-client-id-from-fitbit')
+    FITBIT_CLIENT_SECRET = os.getenv('FITBIT_CLIENT_SECRET', 'your-client-secret-from-fitbit')
     FITBIT_REDIRECT_URI = os.getenv('FITBIT_REDIRECT_URI', 'http://127.0.0.1:5000/fitbit-callback')
 
     # Email Configuration (Flask-Mail)
@@ -40,27 +42,19 @@ class Config:
         """Validate critical configuration keys"""
         issues = []
 
-        if not Config.FITBIT_CLIENT_ID:
-            issues.append("⚠️ FITBIT_CLIENT_ID not set")
-        else:
-            print(f"✅ Fitbit Client ID: {Config.FITBIT_CLIENT_ID[:6]}...")
+        if not Config.FITBIT_CLIENT_ID or Config.FITBIT_CLIENT_ID == 'your-client-id-from-fitbit':
+            issues.append("⚠️ FITBIT_CLIENT_ID not set or default")
 
-        if not Config.FITBIT_CLIENT_SECRET:
-            issues.append("⚠️ FITBIT_CLIENT_SECRET not set")
-        else:
-            print(f"✅ Fitbit Client Secret: {'*' * 20}")
+        if not Config.FITBIT_CLIENT_SECRET or Config.FITBIT_CLIENT_SECRET == 'your-client-secret-from-fitbit':
+            issues.append("⚠️ FITBIT_CLIENT_SECRET not set or default")
 
         print(f"✅ Fitbit Redirect URI: {Config.FITBIT_REDIRECT_URI}")
 
         if not Config.MAIL_USERNAME:
             issues.append("⚠️ MAIL_USERNAME not set")
-        else:
-            print(f"✅ Email Username: {Config.MAIL_USERNAME}")
 
         if not Config.MAIL_PASSWORD:
             issues.append("⚠️ MAIL_PASSWORD not set")
-        else:
-            print(f"✅ Email Password: {'*' * 15}")
 
         if issues:
             print("\n⚠️ Configuration Issues:")

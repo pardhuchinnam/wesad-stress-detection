@@ -1,4 +1,3 @@
-# ================= eventlet monkey patching MUST be first =================
 import eventlet
 eventlet.monkey_patch()
 
@@ -18,12 +17,13 @@ from tensorflow.keras.models import load_model
 import joblib
 import numpy as np
 
-# Add backend folder to sys.path
+# Add backend folder to sys.path for local imports
 sys.path.append(str(Path(__file__).parent))
 
+# Import your models here (adjust if models in backend/models.py)
 from models import User, db
 
-# Load environment variables
+# Load environment variables from .env
 load_dotenv()
 
 # Configure logging
@@ -36,13 +36,10 @@ logger = logging.getLogger(__name__)
 # Initialize Flask extensions
 migrate = Migrate()
 login_manager = LoginManager()
-
-# Critical: Use eventlet as async mode for SocketIO for compatibility
+mail = Mail()
 socketio = SocketIO(async_mode='eventlet', cors_allowed_origins="*")
 
-mail = Mail()
-
-# Global ML models
+# Globals for ML models
 ann_model = None
 cnn_lstm_model = None
 scaler = None
@@ -73,11 +70,11 @@ def load_ml_models():
 def create_app():
     app = Flask(__name__, template_folder='templates')
 
-    # Load config
+    # Load config from Config class
     from config import Config
     app.config.from_object(Config)
 
-    # Init extensions
+    # Initialize extensions with app context
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
@@ -85,10 +82,10 @@ def create_app():
     mail.init_app(app)
     CORS(app)
 
-    # Load ML models
+    # Load ML models once on app startup
     load_ml_models()
 
-    # Login manager config
+    # Configure Flask-Login
     login_manager.login_view = 'auth.login'
     login_manager.login_message = 'Please log in to access this page.'
 
@@ -100,37 +97,53 @@ def create_app():
             logger.error(f"Error loading user {user_id}: {e}")
             return None
 
-    # Register blueprints
-    def try_register_blueprint(bp_import_path, url_prefix=None):
-        try:
-            bp_module = __import__(bp_import_path, fromlist=['bp'])
-            bp = getattr(
-                bp_module,
-                'auth_bp' if 'auth' in bp_import_path else
-                'main_bp' if 'main' in bp_import_path else
-                'api_bp'
-            )
-            if url_prefix:
-                app.register_blueprint(bp, url_prefix=url_prefix)
-            else:
-                app.register_blueprint(bp)
-            logger.info(f"✅ Registered blueprint '{bp.name}'")
-        except Exception as e:
-            logger.error(f"Failed to register {bp_import_path}: {e}")
+    # Initialize blueprint variables
+    auth_bp = None
+    main_bp = None
+    api_bp = None
 
-    try_register_blueprint('routes.auth', url_prefix='/auth')
-    try_register_blueprint('routes.main')
-    try_register_blueprint('routes.api', url_prefix='/api')
-
-    # SocketIO events
+    # Import blueprints with correct paths
     try:
-        from routes.socketio_events import init_socketio_events
+        from backend.routes.auth import auth_bp
+        from backend.routes.main import main_bp
+        from backend.routes.api import api_bp
+    except ImportError as e:
+        logger.critical(f"❌ CRITICAL BLUEPRINT IMPORT ERROR: {e}")
+
+    try:
+        import services
+        logger.info("✅ Services module loaded successfully (active_monitors initialized)")
+    except Exception as e:
+        logger.critical(f"❌ CRITICAL SERVICES IMPORT ERROR: {e}")
+
+    # Register blueprints safely
+    if auth_bp:
+        app.register_blueprint(auth_bp, url_prefix='/auth')
+        logger.info("✅ Registered blueprint 'auth'")
+    else:
+        logger.error("❌ Blueprint 'auth' not registered due to import error.")
+
+    if main_bp:
+        app.register_blueprint(main_bp)
+        logger.info("✅ Registered blueprint 'main'")
+    else:
+        logger.error("❌ Blueprint 'main' not registered due to import error.")
+
+    if api_bp:
+        app.register_blueprint(api_bp, url_prefix='/api')
+        logger.info("✅ Registered blueprint 'api'")
+    else:
+        logger.error("❌ Blueprint 'api' not registered due to import error.")
+
+    # Initialize socketio events
+    try:
+        from backend.routes.socketio_events import init_socketio_events
         init_socketio_events(socketio, app)
         logger.info("✅ SocketIO events initialized")
     except Exception as e:
         logger.warning(f"SocketIO events not initialized: {e}")
 
-    # Notification services
+    # Initialize notification services
     try:
         from services.notifications import init_notifications
         init_notifications(app)
@@ -138,15 +151,15 @@ def create_app():
     except Exception as e:
         logger.warning(f"Notifications not initialized: {e}")
 
-    # Fitbit Sync Service
+    # Initialize Fitbit sync service
     try:
         from services.fitbit_service import init_fitbit_sync
-        fitbit_sync = init_fitbit_sync(app)
+        init_fitbit_sync(app)
         logger.info("✅ Fitbit sync service initialized")
     except Exception as e:
         logger.warning(f"Fitbit sync not initialized: {e}")
 
-    # Initialize databases
+    # Initialize user and prediction databases
     with app.app_context():
         try:
             db.create_all()
@@ -157,7 +170,6 @@ def create_app():
             logger.info("✅ Prediction database initialized")
 
             Config.validate_config()
-
         except Exception as e:
             logger.error(f"❌ Error during initialization: {e}")
 
@@ -165,7 +177,6 @@ def create_app():
 
     @app.route('/predict', methods=['POST'])
     def predict_emotion():
-        """Main prediction endpoint using ANN"""
         try:
             data = request.get_json()
             features = np.array(data['features']).reshape(1, -1)
@@ -200,7 +211,6 @@ def create_app():
 
     @app.route('/predict-cnn-lstm', methods=['POST'])
     def predict_cnn_lstm():
-        """Prediction using CNN-LSTM"""
         try:
             data = request.get_json()
             features = np.array(data['features'])
@@ -227,7 +237,6 @@ def create_app():
 
     @app.route('/health')
     def health_check():
-        """Health check endpoint"""
         return jsonify({
             'status': 'healthy',
             'service': 'WESAD Stress Detection System',
@@ -281,7 +290,6 @@ if __name__ == '__main__':
         print(f"   Port: {port}")
         print(f"   Environment: {os.environ.get('FLASK_ENV')}")
 
-    # Run with eventlet worker (ensured by async_mode='eventlet' in SocketIO)
     socketio.run(
         app,
         host='0.0.0.0' if is_production else '127.0.0.1',
@@ -290,6 +298,5 @@ if __name__ == '__main__':
         use_reloader=False
     )
 
-# Gunicorn deployment expects `app` at module level
 if __name__ != '__main__':
     app = create_app()

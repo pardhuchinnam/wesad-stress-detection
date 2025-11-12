@@ -1,28 +1,37 @@
-from flask import Blueprint, jsonify, request, Response, send_file
-from flask_login import login_required, current_user
+from backend.services.fitbit_service import FitbitDataService, fitbit_sync_service
 import logging
 import sys
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta, timezone
 import io
 import csv
+from flask import Blueprint, jsonify, request, Response, send_file
+from flask_login import login_required, current_user
 
-# Add backend to path
+
+
+# Setup UTF-8 logging to avoid errors with emojis
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(name)s - %(message)s',
+    encoding='utf-8'
+)
+logger = logging.getLogger(__name__)
+
+# Add backend to system path for imports
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
-logger = logging.getLogger(__name__)
-
 
 # ==================== BASIC STATS & DATA ====================
 
 @api_bp.route('/quick-stats')
 @login_required
 def quick_stats():
-    """Get quick statistics for dashboard"""
     try:
         import database
         user_stats = database.get_user_stats(str(current_user.id))
@@ -36,11 +45,9 @@ def quick_stats():
             'wellness_status': 'Getting Started'
         })
 
-
 @api_bp.route('/historical-data')
 @login_required
 def historical_data():
-    """Get historical stress data for charts"""
     try:
         import database
         days = int(request.args.get('days', 7))
@@ -53,7 +60,6 @@ def historical_data():
         except AttributeError:
             logger.warning("get_historical_data not implemented in database module")
 
-        # Return dummy data for visualization
         now = datetime.now(timezone.utc)
         return jsonify({
             'timestamps': [(now - timedelta(days=i)).isoformat() for i in range(days, 0, -1)],
@@ -71,7 +77,6 @@ def historical_data():
 @api_bp.route('/emotion-timeline')
 @login_required
 def emotion_timeline():
-    """Get emotion changes over time"""
     try:
         import database
         user_id = str(current_user.id)
@@ -88,17 +93,17 @@ def emotion_timeline():
                 'total_records': 0
             })
 
-        timeline_data = []
-        for pred in predictions:
-            timeline_data.append({
+        timeline_data = [
+            {
                 'timestamp': pred.get('timestamp', ''),
                 'emotion': pred.get('stress_level', 'baseline'),
                 'confidence': float(pred.get('confidence', 0.5)),
                 'heart_rate': pred.get('heart_rate', 75) or 75
-            })
+            } for pred in predictions
+        ]
 
         timeline_data.sort(key=lambda x: x['timestamp'])
-        logger.info(f"✅ Timeline: Found {len(timeline_data)} records for user {user_id}")
+        logger.info(f"Timeline: Found {len(timeline_data)} records for user {user_id}")
 
         return jsonify({
             'timeline': timeline_data,
@@ -107,16 +112,13 @@ def emotion_timeline():
         })
 
     except Exception as e:
-        logger.error(f"❌ Timeline error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Timeline error: {e}", exc_info=True)
         return jsonify({'error': str(e), 'timeline': [], 'total_records': 0}), 500
 
 
 @api_bp.route('/emotion-distribution')
 @login_required
 def emotion_distribution():
-    """Get emotion distribution for pie chart"""
     try:
         import database
         user_id = str(current_user.id)
@@ -143,7 +145,7 @@ def emotion_distribution():
         return jsonify(distribution)
 
     except Exception as e:
-        logger.error(f"Emotion distribution error: {e}")
+        logger.error(f"Emotion distribution error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
@@ -152,7 +154,6 @@ def emotion_distribution():
 @api_bp.route('/fitbit/realtime-data')
 @login_required
 def fitbit_realtime_data():
-    """Fetch real-time comprehensive Fitbit data"""
     try:
         if not current_user.fitbit_connected:
             return jsonify({'error': 'Fitbit not connected'}), 401
@@ -168,14 +169,13 @@ def fitbit_realtime_data():
         })
 
     except Exception as e:
-        logger.error(f"❌ Realtime Fitbit error: {e}")
+        logger.error(f"Realtime Fitbit error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/fitbit/heart-rate')
 @login_required
 def fitbit_heart_rate():
-    """Get current heart rate from Fitbit"""
     try:
         if not current_user.fitbit_connected:
             return jsonify({'error': 'Fitbit not connected'}), 401
@@ -191,14 +191,13 @@ def fitbit_heart_rate():
         })
 
     except Exception as e:
-        logger.error(f"❌ HR fetch error: {e}")
+        logger.error(f"HR fetch error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/fitbit/activity')
 @login_required
 def fitbit_activity():
-    """Get daily activity summary"""
     try:
         if not current_user.fitbit_connected:
             return jsonify({'error': 'Fitbit not connected'}), 401
@@ -214,14 +213,13 @@ def fitbit_activity():
         })
 
     except Exception as e:
-        logger.error(f"❌ Activity fetch error: {e}")
+        logger.error(f"Activity fetch error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/fitbit/sleep')
 @login_required
 def fitbit_sleep():
-    """Get sleep data from Fitbit"""
     try:
         if not current_user.fitbit_connected:
             return jsonify({'error': 'Fitbit not connected'}), 401
@@ -237,14 +235,13 @@ def fitbit_sleep():
         })
 
     except Exception as e:
-        logger.error(f"❌ Sleep fetch error: {e}")
+        logger.error(f"Sleep fetch error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/fitbit/hrv-stress')
 @login_required
 def fitbit_hrv_stress():
-    """Calculate stress score from HRV"""
     try:
         if not current_user.fitbit_connected:
             return jsonify({'error': 'Fitbit not connected'}), 401
@@ -263,14 +260,13 @@ def fitbit_hrv_stress():
         })
 
     except Exception as e:
-        logger.error(f"❌ HRV stress calc error: {e}")
+        logger.error(f"HRV stress calc error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/fitbit/start-sync', methods=['POST'])
 @login_required
 def fitbit_start_sync():
-    """Start background Fitbit data synchronization"""
     try:
         if not current_user.fitbit_connected:
             return jsonify({'error': 'Fitbit not connected'}), 401
@@ -287,14 +283,13 @@ def fitbit_start_sync():
             return jsonify({'error': 'Sync service not available'}), 500
 
     except Exception as e:
-        logger.error(f"❌ Start sync error: {e}")
+        logger.error(f"Start sync error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/fitbit/stop-sync', methods=['POST'])
 @login_required
 def fitbit_stop_sync():
-    """Stop background Fitbit synchronization"""
     try:
         from services.fitbit_service import fitbit_sync_service
         if fitbit_sync_service:
@@ -304,7 +299,7 @@ def fitbit_stop_sync():
             return jsonify({'error': 'Sync service not available'}), 500
 
     except Exception as e:
-        logger.error(f"❌ Stop sync error: {e}")
+        logger.error(f"Stop sync error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
@@ -313,7 +308,6 @@ def fitbit_stop_sync():
 @api_bp.route('/recommendations')
 @login_required
 def get_recommendations():
-    """Enhanced AI-powered context-aware recommendations"""
     try:
         import database
         user_id = str(current_user.id)
@@ -331,7 +325,6 @@ def get_recommendations():
                 }]
             })
 
-        # Enhanced analysis
         stress_count = sum(1 for p in recent_predictions if p.get('stress_level') == 'stress')
         stress_ratio = stress_count / len(recent_predictions)
 
@@ -477,7 +470,7 @@ def get_recommendations():
         })
 
     except Exception as e:
-        logger.error(f"❌ Recommendations error: {e}")
+        logger.error(f"Recommendations error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
@@ -486,7 +479,6 @@ def get_recommendations():
 @api_bp.route('/correlation-map')
 @login_required
 def correlation_map():
-    """Generate feature correlation heatmap"""
     try:
         import database
         user_id = str(current_user.id)
@@ -496,10 +488,7 @@ def correlation_map():
         if not predictions or len(predictions) < 10:
             return jsonify({'error': 'Insufficient data for correlation analysis'}), 404
 
-        feature_data = []
-        for pred in predictions:
-            if pred.get('features'):
-                feature_data.append(pred['features'])
+        feature_data = [pred['features'] for pred in predictions if pred.get('features')]
 
         if not feature_data:
             return jsonify({'error': 'No feature data available'}), 404
@@ -528,18 +517,16 @@ def correlation_map():
         })
 
     except Exception as e:
-        logger.error(f"Correlation map error: {e}")
+        logger.error(f"Correlation map error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/feature-importance')
 @login_required
 def feature_importance():
-    """Get feature importance using SHAP values"""
     try:
         import services
         user_id = str(current_user.id)
-
         model = services.ml_service.models.get('RandomForest')
         if not model:
             return jsonify({
@@ -551,7 +538,6 @@ def feature_importance():
 
         import database
         predictions = database.get_user_predictions(user_id, limit=100)
-
         if not predictions or not predictions[0].get('features'):
             return jsonify({'error': 'No feature data available'}), 404
 
@@ -596,14 +582,13 @@ def feature_importance():
                 })
 
     except Exception as e:
-        logger.error(f"Feature importance error: {e}")
+        logger.error(f"Feature importance error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/stress-forecast')
 @login_required
 def stress_forecast():
-    """Forecast stress levels for next 24 hours"""
     try:
         hours = list(range(24))
         forecast = [0.3 + 0.2 * np.sin(i * 0.3) + np.random.random() * 0.1 for i in hours]
@@ -619,7 +604,7 @@ def stress_forecast():
         })
 
     except Exception as e:
-        logger.error(f"Forecast error: {e}")
+        logger.error(f"Forecast error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
@@ -628,7 +613,6 @@ def stress_forecast():
 @api_bp.route('/export-data')
 @login_required
 def export_data():
-    """Export user data as CSV"""
     try:
         import database
         user_id = str(current_user.id)
@@ -658,18 +642,16 @@ def export_data():
                 'Content-Disposition': f'attachment; filename=wesad_data_{user_id}_{datetime.now().strftime("%Y%m%d")}.csv'
             }
         )
-
         return response
 
     except Exception as e:
-        logger.error(f"Export error: {e}")
+        logger.error(f"Export error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/weekly-report-pdf')
 @login_required
 def weekly_report_pdf():
-    """Generate PDF report"""
     try:
         from reportlab.lib.pagesizes import letter
         from reportlab.lib import colors
@@ -713,7 +695,7 @@ def weekly_report_pdf():
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('BACKGROUND', (1, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
 
@@ -741,7 +723,7 @@ def weekly_report_pdf():
         )
 
     except Exception as e:
-        logger.error(f"PDF error: {e}")
+        logger.error(f"PDF error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
@@ -750,7 +732,6 @@ def weekly_report_pdf():
 @api_bp.route('/model-comparison')
 @login_required
 def model_comparison():
-    """Compare ML models"""
     return jsonify({
         'models': {
             'ANN': {'accuracy': 0.89, 'f1_score': 0.87, 'precision': 0.88, 'recall': 0.86,
@@ -771,7 +752,6 @@ def model_comparison():
 
 @api_bp.route('/health')
 def health_check():
-    """API health check"""
     return jsonify({
         'status': 'healthy',
         'service': 'WESAD Stress Detection API',

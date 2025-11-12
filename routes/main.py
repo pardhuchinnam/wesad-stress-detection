@@ -1,17 +1,38 @@
-from flask import Blueprint, jsonify, redirect, url_for, render_template, flash, request, send_file
+from flask import Blueprint, jsonify, redirect, url_for, render_template, flash, request
 from flask_login import login_required, current_user
 import logging
 import sys
 from pathlib import Path
 from datetime import datetime
 
-# Add backend to path
+# Add backend to system path to import project modules
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
+# Initialize Blueprint and Logger first
 main_bp = Blueprint('main', __name__)
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------
+# Import modules at the top level
+# ---------------------------------------------
+try:
+    import database
+    import services
+    import random
+    from services.notifications import send_stress_alert_email
+    from services.fitbit_service import FitbitDataService
+
+    logger.info("✅ All core modules imported successfully")
+except ImportError as e:
+    logger.critical(f"CRITICAL ERROR: Failed to import a core module: {e}")
+    database = None
+    services = None
+
+
+# ---------------------------------------------
+# ROUTES
+# ---------------------------------------------
 
 @main_bp.route('/')
 def index():
@@ -19,12 +40,12 @@ def index():
     if current_user.is_authenticated:
         return redirect(url_for('main.user_dashboard'))
 
-    try:
-        import database
-        total_predictions = database.get_total_predictions_count()
-    except Exception as e:
-        logger.debug(f"Could not get predictions: {e}")
-        total_predictions = 0
+    total_predictions = 0
+    if database:
+        try:
+            total_predictions = database.get_total_predictions_count()
+        except Exception as e:
+            logger.debug(f"Could not get predictions: {e}")
 
     return jsonify({
         'message': 'WESAD Stress Detection API - Advanced Edition',
@@ -46,13 +67,13 @@ def index():
 @login_required
 def user_dashboard():
     """Main dashboard route"""
+    if not database or not services:
+        flash("System service error: Cannot load monitoring modules.", "error")
+        return redirect(url_for('main.index'))
+
     try:
-        import database
         user_stats = database.get_user_stats(str(current_user.id))
-
-        import services
         is_monitoring = str(current_user.id) in services.active_monitors
-
         return render_template('dashboard.html',
                                user_stats=user_stats,
                                is_monitoring=is_monitoring,
@@ -67,10 +88,11 @@ def user_dashboard():
 @login_required
 def start_realtime():
     """Start real-time monitoring"""
+    if not services:
+        return jsonify({'status': 'error', 'message': 'Monitoring service not available'}), 500
+
     try:
         user_id = str(current_user.id)
-        import services
-
         if user_id in services.active_monitors:
             return jsonify({'status': 'already_active', 'message': 'Monitoring already active'})
 
@@ -93,10 +115,11 @@ def start_realtime():
 @login_required
 def stop_realtime():
     """Stop real-time monitoring"""
+    if not services:
+        return jsonify({'status': 'error', 'message': 'Monitoring service not available'}), 500
+
     try:
         user_id = str(current_user.id)
-        import services
-
         if user_id in services.active_monitors:
             monitor = services.active_monitors.pop(user_id)
             monitor.stop_monitoring()
@@ -113,14 +136,14 @@ def stop_realtime():
 @login_required
 def monitoring_status():
     """Check current monitoring status"""
+    if not services:
+        return jsonify({'status': 'error', 'monitoring': False, 'message': 'Monitoring service not available'}), 500
+
     try:
         user_id = str(current_user.id)
-        import services
-
         if user_id in services.active_monitors:
             monitor = services.active_monitors[user_id]
             latest_data = monitor.get_latest_data()
-
             return jsonify({
                 'status': 'active',
                 'monitoring': True,
@@ -146,12 +169,13 @@ def monitoring_status():
 @login_required
 def generate_test_data():
     """Generate test data for demonstration"""
+    if not database or not random:
+        return jsonify({'status': 'error', 'message': 'Data service not available'}), 500
+
     try:
         user_id = str(current_user.id)
-        import database
-        import random
 
-        for i in range(10):
+        for _ in range(10):
             stress_level = random.choice(['baseline', 'stress', 'amusement'])
             confidence = random.uniform(0.6, 0.95)
             features = {
@@ -168,7 +192,6 @@ def generate_test_data():
                 'ANN',
                 []
             )
-
         flash("✅ Generated 10 test data points!", "success")
         return jsonify({'status': 'success', 'message': 'Test data generated'})
     except Exception as exc:
@@ -184,7 +207,6 @@ def user_profile():
 
     if request.method == 'POST':
         try:
-            # Update user profile fields
             current_user.age = int(request.form.get('age', 0)) if request.form.get('age') else None
             current_user.gender = request.form.get('gender', '')
             current_user.height = float(request.form.get('height', 0)) if request.form.get('height') else None
@@ -196,13 +218,11 @@ def user_profile():
             flash('✅ Profile updated successfully!', 'success')
             logger.info(f"Profile updated for user {current_user.username}")
             return redirect(url_for('main.user_profile'))
-
         except Exception as exc:
             db.session.rollback()
             logger.error(f'Profile update error: {exc}')
             flash('❌ Failed to update profile. Please try again.', 'error')
 
-    # Check if Fitbit package is available
     FITBIT_AVAILABLE = False
     try:
         import fitbit
@@ -219,99 +239,93 @@ def user_profile():
 @login_required
 def connect_fitbit():
     """Initiate Fitbit OAuth connection"""
+    import base64
+    from flask import current_app
+
     try:
-        import fitbit
-        from config import Config
-
-        # Check if Fitbit credentials are configured
-        if not hasattr(Config, 'FITBIT_CLIENT_ID') or not hasattr(Config, 'FITBIT_CLIENT_SECRET'):
-            flash('⚠️ Fitbit integration not configured. Add FITBIT_CLIENT_ID and FITBIT_CLIENT_SECRET to your .env file.', 'error')
+        client_id = current_app.config.get('FITBIT_CLIENT_ID')
+        client_secret = current_app.config.get('FITBIT_CLIENT_SECRET')
+        if not client_id or not client_secret:
+            flash('⚠️ Fitbit credentials not configured.', 'error')
             return redirect(url_for('main.user_profile'))
 
-        if not Config.FITBIT_CLIENT_ID or not Config.FITBIT_CLIENT_SECRET:
-            flash('⚠️ Fitbit credentials not set in .env file', 'error')
-            return redirect(url_for('main.user_profile'))
+        redirect_uri = url_for('main.fitbit_callback', _external=True)
+        scope = 'heartrate activity sleep'
 
-        # Create Fitbit OAuth2 client
-        server = fitbit.Fitbit(
-            Config.FITBIT_CLIENT_ID,
-            Config.FITBIT_CLIENT_SECRET,
-            redirect_uri=Config.FITBIT_REDIRECT_URI,
-            timeout=10
+        auth_url = (
+            f'https://www.fitbit.com/oauth2/authorize?response_type=code&client_id={client_id}'
+            f'&redirect_uri={redirect_uri}&scope={scope}&expires_in=604800'
         )
+        return redirect(auth_url)
 
-        # Get authorization URL
-        url, _ = server.client.authorize_token_url()
-        logger.info(f"Redirecting to Fitbit authorization: {url}")
-        return redirect(url)
-
-    except ImportError:
-        flash('⚠️ python-fitbit package not installed. Run: pip install fitbit', 'error')
-        return redirect(url_for('main.user_profile'))
     except Exception as exc:
         logger.error(f'Fitbit connection error: {exc}')
-        flash(f'❌ Error connecting to Fitbit: {str(exc)}', 'error')
+        flash(f'❌ Error connecting to Fitbit: {exc}', 'error')
         return redirect(url_for('main.user_profile'))
 
 
 @main_bp.route('/fitbit-callback')
 @login_required
 def fitbit_callback():
-    """Handle Fitbit OAuth callback"""
-    try:
-        import fitbit
-        from config import Config
-        from models import db
+    import base64
+    import requests
+    from flask import current_app
+    from models import db
 
+    try:
         code = request.args.get('code')
         if not code:
-            error = request.args.get('error', 'Unknown error')
-            flash(f'❌ Fitbit authorization failed: {error}', 'error')
+            flash('Authorization failed or denied', 'error')
             return redirect(url_for('main.user_profile'))
 
-        # Exchange code for access token
-        server = fitbit.Fitbit(
-            Config.FITBIT_CLIENT_ID,
-            Config.FITBIT_CLIENT_SECRET,
-            redirect_uri=Config.FITBIT_REDIRECT_URI
-        )
+        token_url = "https://api.fitbit.com/oauth2/token"
+        client_id = current_app.config['FITBIT_CLIENT_ID']
+        client_secret = current_app.config['FITBIT_CLIENT_SECRET']
+        redirect_uri = url_for('main.fitbit_callback', _external=True)
 
-        server.client.fetch_access_token(code)
+        auth_header = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+        headers = {
+            'Authorization': f'Basic {auth_header}',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        data = {
+            'client_id': client_id,
+            'grant_type': 'authorization_code',
+            'redirect_uri': redirect_uri,
+            'code': code
+        }
 
-        # Store Fitbit credentials
+        response = requests.post(token_url, headers=headers, data=data)
+        if response.status_code != 200:
+            flash('Failed to obtain Fitbit tokens', 'error')
+            return redirect(url_for('main.user_profile'))
+
+        tokens = response.json()
+        current_user.fitbit_access_token = tokens.get('access_token')
+        current_user.fitbit_refresh_token = tokens.get('refresh_token')
         current_user.fitbit_connected = True
-        current_user.fitbit_access_token = server.client.session.token['access_token']
-        current_user.fitbit_refresh_token = server.client.session.token['refresh_token']
-
         db.session.commit()
 
-        flash('✅ Fitbit connected successfully!', 'success')
-        logger.info(f"Fitbit connected for user {current_user.username}")
+        flash('Fitbit successfully connected!', 'success')
         return redirect(url_for('main.user_profile'))
-
     except Exception as exc:
         logger.error(f'Fitbit callback error: {exc}')
-        flash(f'❌ Error connecting Fitbit: {str(exc)}', 'error')
+        flash(f'❌ Error during Fitbit callback: {str(exc)}', 'error')
         return redirect(url_for('main.user_profile'))
 
 
 @main_bp.route('/disconnect-fitbit')
 @login_required
 def disconnect_fitbit():
-    """Disconnect Fitbit integration"""
-    try:
-        from models import db
+    from models import db
 
+    try:
         current_user.fitbit_connected = False
         current_user.fitbit_access_token = None
         current_user.fitbit_refresh_token = None
-
         db.session.commit()
-
         flash('✅ Fitbit disconnected successfully', 'success')
-        logger.info(f"Fitbit disconnected for user {current_user.username}")
         return redirect(url_for('main.user_profile'))
-
     except Exception as exc:
         logger.error(f'Fitbit disconnect error: {exc}')
         flash('❌ Error disconnecting Fitbit', 'error')
@@ -321,23 +335,15 @@ def disconnect_fitbit():
 @main_bp.route('/api/fitbit-data')
 @login_required
 def get_fitbit_data():
-    """Endpoint to fetch live Fitbit data"""
+    if not current_user.fitbit_connected:
+        return jsonify({
+            'error': 'Fitbit not connected',
+            'message': 'Please connect your Fitbit account from the Profile page',
+            'connected': False
+        }), 400
+
     try:
-        # Check if Fitbit is connected
-        if not current_user.fitbit_connected:
-            return jsonify({
-                'error': 'Fitbit not connected',
-                'message': 'Please connect your Fitbit account from the Profile page',
-                'connected': False
-            }), 400
-
-        # Import Fitbit service
-        from services.fitbit_service import FitbitDataService
-
-        # Create Fitbit service instance
         fitbit_service = FitbitDataService(current_user)
-
-        # Get physiological data
         data = fitbit_service.stream_physiological_data()
 
         if not data:
@@ -352,42 +358,21 @@ def get_fitbit_data():
             'connected': True,
             'message': 'Live Fitbit data retrieved successfully'
         })
-
-    except ImportError as e:
-        logger.error(f"Fitbit service import error: {e}")
-        return jsonify({
-            'error': 'Fitbit service not available',
-            'message': 'Please install python-fitbit: pip install fitbit'
-        }), 500
-
     except Exception as e:
         logger.error(f"Fitbit data endpoint error: {e}")
-        return jsonify({
-            'error': str(e),
-            'message': 'An error occurred while fetching Fitbit data'
-        }), 500
+        return jsonify({'error': str(e), 'message': 'Error fetching Fitbit data'}), 500
 
 
 @main_bp.route('/test-email')
 @login_required
 def test_email():
-    """Test email notification system"""
     try:
-        from services.notifications import send_stress_alert_email
-
-        success = send_stress_alert_email(
-            current_user.email,
-            'stress',
-            0.85
-        )
-
+        success = send_stress_alert_email(current_user.email, 'stress', 0.85)
         if success:
             flash('✅ Test email sent successfully! Check your inbox.', 'success')
         else:
-            flash('❌ Failed to send test email. Check email configuration in .env file.', 'error')
-
+            flash('❌ Failed to send test email.', 'error')
         return redirect(url_for('main.user_profile'))
-
     except Exception as e:
         logger.error(f"Test email error: {e}")
         flash(f'❌ Email test failed: {str(e)}', 'error')
@@ -397,17 +382,20 @@ def test_email():
 @main_bp.route('/research/dashboard')
 @login_required
 def research_dashboard():
-    """Research dashboard with advanced analytics"""
-    try:
-        import database
-        user_stats = database.get_user_stats(str(current_user.id))
+    if not database:
+        return jsonify({
+            'message': 'Research dashboard data',
+            'user': current_user.username,
+            'error': 'Database service not available'
+        }), 500
 
+    try:
+        user_stats = database.get_user_stats(str(current_user.id))
         return render_template('research_dashboard.html',
                                user_stats=user_stats,
                                current_user=current_user)
     except Exception as e:
         logger.error(f"Research dashboard error: {e}")
-        # Fallback to JSON if template not found
         return jsonify({
             'message': 'Research dashboard data',
             'user': current_user.username,
@@ -418,20 +406,17 @@ def research_dashboard():
 @main_bp.route('/export-report')
 @login_required
 def export_report():
-    """Generate and download weekly report - redirect to API"""
     return redirect(url_for('api.weekly_report_pdf'))
 
 
 @main_bp.route('/export-data')
 @login_required
 def export_data():
-    """Export user data as CSV - redirect to API"""
     return redirect(url_for('api.export_data'))
 
 
 @main_bp.route('/health-check')
 def health_check():
-    """Health check endpoint"""
     try:
         return jsonify({
             'status': 'healthy',
@@ -448,7 +433,4 @@ def health_check():
             ]
         })
     except Exception as e:
-        return jsonify({
-            'status': 'unhealthy',
-            'error': str(e)
-        }), 500
+        return jsonify({'status': 'unhealthy', 'error': str(e)}), 500

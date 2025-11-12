@@ -1,15 +1,16 @@
-"""Service layer for ML models and monitoring"""
 from datetime import datetime, timezone
 import logging
 import threading
 import time
-import random
 import numpy as np
+
+# import database  # <--- CRITICAL: REMOVE THIS TOP-LEVEL IMPORT
 
 logger = logging.getLogger(__name__)
 
-# Active monitoring sessions
+# Active monitoring sessions dictionary — must be global and accessible
 active_monitors = {}
+print("active_monitors dict initialized")  # For debugging
 
 
 class MLService:
@@ -30,11 +31,9 @@ class MLService:
     def predict_stress(self, sensor_data, model='RandomForest'):
         """Predict stress level from sensor data"""
         try:
-            # Simple stress prediction based on heart rate
             hr = sensor_data.get('heart_rate', 70)
             eda = sensor_data.get('eda', 0.3)
 
-            # Calculate stress score
             if hr > 90 or eda > 0.7:
                 stress_level = 'stress'
                 confidence = 0.85
@@ -75,6 +74,15 @@ class RealTimeStressMonitor:
         self.latest_sensor_data = {}
         logger.info(f"Monitor created for user {user.username}")
 
+        # ✅ FIX: Import database here to break the circular import
+        try:
+            import database
+            self.database = database
+        except ImportError:
+            self.database = None
+            logger.error("Database module failed to load in RealTimeStressMonitor.")
+        # End of FIX
+
     def start_monitoring(self):
         """Start the monitoring thread"""
         if not self.active:
@@ -95,29 +103,24 @@ class RealTimeStressMonitor:
         """Main monitoring loop"""
         while self.active:
             try:
-                # Generate sensor data
                 sensor_data = self._get_live_sensor_data()
                 self.latest_sensor_data = sensor_data
 
-                # Make prediction
-                if self.ml_service:
+                if self.ml_service and self.database:  # Check for imported database
                     prediction = self.ml_service.predict_stress(sensor_data)
 
-                    # Store prediction
                     try:
-                        import database
-                        database.store_prediction(
-                            prediction['stress_level'],
-                            prediction['confidence'],
-                            sensor_data,
-                            str(self.user.id),
-                            prediction['model_used'],
-                            prediction.get('factors', [])
+                        self.database.store_prediction(
+                            stress_level=prediction['stress_level'],
+                            confidence=prediction['confidence'],
+                            features=sensor_data,
+                            user_id=str(self.user.id),
+                            model_used=prediction['model_used'],
+                            factors=prediction.get('factors', [])
                         )
                     except Exception as e:
                         logger.debug(f"Could not store prediction: {e}")
 
-                    # Emit via SocketIO if available
                     if self.socketio:
                         try:
                             self.socketio.emit('real_time_update', {
@@ -130,7 +133,6 @@ class RealTimeStressMonitor:
                         except Exception as e:
                             logger.debug(f"SocketIO emit failed: {e}")
 
-                # Sleep for 3 seconds
                 time.sleep(3)
 
             except Exception as exc:
@@ -142,11 +144,10 @@ class RealTimeStressMonitor:
         current_time = datetime.now(timezone.utc)
         hour = current_time.hour
 
-        # Time-based patterns (higher stress during work hours)
-        if 9 <= hour <= 17:  # Work hours
+        if 9 <= hour <= 17:
             base_hr = 75 + np.random.normal(0, 8)
             base_eda = 0.6 + np.random.normal(0, 0.3)
-        else:  # Leisure hours
+        else:
             base_hr = 65 + np.random.normal(0, 6)
             base_eda = 0.3 + np.random.normal(0, 0.2)
 
@@ -199,7 +200,7 @@ class RealTimeStressMonitor:
             }
 
 
-# Initialize ML service
+# Initialize ML service globally
 ml_service = MLService()
 
 logger.info("✅ Services module loaded successfully")
