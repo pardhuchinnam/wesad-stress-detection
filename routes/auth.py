@@ -1,11 +1,13 @@
 import sys
 from pathlib import Path
-sys.path.append(str(Path(__file__).parents[1]))
-
+import logging
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for, flash
 from flask_login import login_user, logout_user, login_required, current_user
 from backend.models import User, db
-import logging
+from sqlalchemy import or_
+
+# Add backend directory to system path for imports
+sys.path.append(str(Path(__file__).parents[1]))
 
 auth_bp = Blueprint('auth', __name__)
 logger = logging.getLogger(__name__)
@@ -19,7 +21,7 @@ def login():
         if request.method == 'GET':
             return render_template('login.html')
 
-        # For POST request, handle form and JSON
+        # Handle POST data from form or JSON
         if request.is_json:
             data = request.get_json()
         else:
@@ -27,9 +29,6 @@ def login():
 
         username = data.get('username', '').strip()
         password = data.get('password', '')
-
-        # Debug print to confirm data received
-        print(f"Attempt login for: '{username}', password length: {len(password)}")
 
         if not username or not password:
             flash("Please fill in all fields", "danger")
@@ -84,7 +83,7 @@ def register():
             return render_template('register.html')
 
         user_exists = User.query.filter(
-            (User.username == username) | (User.email == email)
+            or_(User.username == username, User.email == email)
         ).first()
 
         if user_exists:
@@ -107,6 +106,7 @@ def register():
         flash("Registration failed. Please try again.", "danger")
         return render_template('register.html')
 
+
 @auth_bp.route('/logout')
 @login_required
 def logout():
@@ -117,6 +117,7 @@ def logout():
     except Exception as e:
         logger.error(f'Logout error: {str(e)}')
         return jsonify({'error': 'Logout failed'}), 500
+
 
 @auth_bp.route('/me', methods=['GET'])
 @login_required
